@@ -280,7 +280,7 @@ if (( ! ${EXITSTATUS} )); then
 	# Install kernel modules.  TODO: We should find a way to see if this is required.
 	if [[ -d /usr/src/linux ]]; then
 		pushd /usr/src/linux >/dev/null
-		local KVER=$(make kernelversion)
+		KVER=$(make kernelversion)
 		echo -n "Installing kernel modules for ${KVER}..."
 		exec_and_log modules_install "make modules_install"
 		okorfail 20
