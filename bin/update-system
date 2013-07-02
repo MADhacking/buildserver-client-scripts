@@ -13,7 +13,7 @@ function versioninfo
 	echo ${CMDNAME}
 	echo ${NAME}${VERSION}
 
-	echo -e "\nCopyright (C) 2010 Hacking Networked Solutions"
+	echo -e "\nCopyright (C) 2013 Hacking Networked Solutions"
 	echo "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>."
 	echo "This is free software: you are free to change and redistribute it."
 	echo "There is NO WARRANTY, to the extent permitted by law."
@@ -22,13 +22,9 @@ function versioninfo
 function helpscreen
 {
 	echo "Usage: ${CMDNAME}"
-	echo "Automatically updates the build-space by downloading all required packages,"
-	echo "building updated packages, merging new configuration files, removing"
-	echo "redundant libraries and packages, rebuilding packages broken by the update"
-	echo "and running python-updater and perl-cleaner as required." 
+	echo "Automatically updates the system by installing all required binary"
+	echo "packages then removing redundant libraries and packages." 
 	echo
-	echo "  -b, --quiet-build              pass the --quiet-build flag to emerge"
-	echo "                                 to suppress most build output" 
 	echo "  -e, --send-email               send an email of the update logs to the"
 	echo "                                 email address specified in ${CFGFILE}"
 	echo "  -k, --keep-going               pass the --keep-going flag to emerge to"
@@ -81,9 +77,6 @@ UPDATE_FLAGS=""
 while (( $# > 0 ))
 do
 	case $1 in
-		-b|--quiet-build)
-			UPDATE_FLAGS="${UPDATE_FLAGS} --quiet-build"
-		;;			
 	    -e|--send-email)
 			SENDEMAIL=1
 	    ;;
@@ -95,7 +88,7 @@ do
 			SENDEMAIL=1
 	    ;;
 	    -r|--remerge-all)
-			UPDATE_OPTS="--emptytree world"
+			UPDATE_OPTS="--emptytree @world"
 	    ;;
 								
 		--version)
