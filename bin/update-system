@@ -185,16 +185,18 @@ if (( ! ${EXITSTATUS} )); then
 	fi 
 
 	# Check for an update to portage (and its dependencies if there is one) and install them.
-	if update_available "sys-apps/portage";
-	then
+	if update_available "sys-apps/portage";	then
 		portage_deps=""
 		for pkg in ${PORTAGE_DEPS}; do
-			update_available ${pkg} && portage_deps="${portage_deps} ${pkg}"
+			if update_available "${pkg}"; then
+				portage_deps="${portage_deps} ${pkg}"
+			fi
 		done
 		portage_deps="${portage_deps} sys-apps/portage"
+		portage_deps="${portage_deps## }"
 		
 		echo -n "Performing update of portage and dependencies [${portage_deps}]..."
-		exec_and_log portage_update "emerge --color n --nospinner --oneshot ${portage_deps}"
+		exec_and_log portage_update "emerge --color n --nospinner --oneshot --update --complete-graph=y --with-bdeps=y ${portage_deps}"
 		okorfail 6
 	fi
 fi
