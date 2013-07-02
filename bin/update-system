@@ -110,6 +110,16 @@ do
 	shift 1
 done
 
+# If the config file exists and we can read it do so, otherwise complain and quit
+[[ ! -r ${CFGFILE} ]] && echo "ERROR: Unable to read config file at ${CFGFILE}" >&2 && exit 1 
+source ${CFGFILE}
+
+# Include and initialise logging library
+[[ ! -r ${OUTLOGLIB} ]] && echo "ERROR: Unable to load outlogger library from ${OUTLOGLIB}" >&2 && exit 2
+[[ -z "${LOGPATH}" ]] && echo "ERROR: No LOGPATH set in ${CFGFILE}" >&2 && exit 2
+source ${OUTLOGLIB}
+init_logging ${LOGPATH}
+
 # Check to make sure we are NOT being run from inside a build-space.
 [[ -f /etc/buildspace ]] && echo "ERROR: ${CMDNAME} should NOT be run inside a build-space!" >&2 && exit 1
 
