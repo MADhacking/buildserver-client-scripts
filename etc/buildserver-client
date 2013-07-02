@@ -1,0 +1,6 @@
+# List of packages which should also be updated if there is 
+# an update to portage available.
+PORTAGE_DEPS="sys-libs/glibc app-shells/bash"
+
+# List of packages which should not be automatically cleaned.
+KEEP_PACKAGES="dev-lang/python"

@@ -1,0 +1,342 @@
+#! /bin/bash
+
+function versioninfo
+{
+	VERSION="$Revision$"
+	VERSION="${VERSION%\ \$}"; VERSION="${VERSION#\:}"; VERSION="${VERSION##\ }"
+	VERSION="(CVS revision $VERSION)"
+	
+	NAME="$Name$"
+	NAME="${NAME%\ \$}"; NAME="${NAME#\:}"; NAME="${NAME##\ }"; NAME="${NAME##release-}"; NAME="${NAME//-/.}"
+	[[ -n $NAME ]] && NAME="Version $NAME "
+
+	echo ${CMDNAME}
+	echo ${NAME}${VERSION}
+
+	echo -e "\nCopyright (C) 2010 Hacking Networked Solutions"
+	echo "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>."
+	echo "This is free software: you are free to change and redistribute it."
+	echo "There is NO WARRANTY, to the extent permitted by law."
+}
+
+function helpscreen
+{
+	echo "Usage: ${CMDNAME}"
+	echo "Automatically updates the build-space by downloading all required packages,"
+	echo "building updated packages, merging new configuration files, removing"
+	echo "redundant libraries and packages, rebuilding packages broken by the update"
+	echo "and running python-updater and perl-cleaner as required." 
+	echo
+	echo "  -b, --quiet-build              pass the --quiet-build flag to emerge"
+	echo "                                 to suppress most build output" 
+	echo "  -e, --send-email               send an email of the update logs to the"
+	echo "                                 email address specified in ${CFGFILE}"
+	echo "  -k, --keep-going               pass the --keep-going flag to emerge to"
+	echo "                                 cause emerge not to stop if a build error"
+	echo "                                 is encountered" 
+	echo "  -q, --quiet                    do not produce any output during the"
+	echo "                                 update process (implies --send-email)"
+	echo "                                 (implied if not being run from a TTY)"
+	echo "  -r, --remerge-all              remerge all installed packages instead"
+	echo "                                 of performing an update"
+	echo "      --help                     display this help and exit"
+    echo "      --version                  output version information and exit"
+}
+
+function okorfail
+{
+	if (( ! $? )); then
+		echo "ok." 
+	else
+		echo "failed [$?]."
+		EXITSTATUS=$1
+	fi
+}
+
+function update_available()
+{
+	[[ -z $(qlist -I -C ">=$(portageq best_visible / ${1})") ]] && return 0
+	
+	return 1
+}
+
+# Update environment and source the profile
+env-update --no-ldconfig &>/dev/null
+source /etc/profile &>/dev/null
+
+# Init global vars
+OUTLOGLIB=/usr/lib/outlogger.sh
+CFGFILE=/etc/buildserver-client
+CMDNAME=$(basename ${0})
+EXITSTATUS=0
+
+# Workaround for python bug 13107 - http://bugs.python.org/issue13107
+[[ -z "$COLUMNS" ]] && export COLUMNS=80 || ( (( $COLUMNS < 80 )) && export COLUMNS=80 )
+
+# The default update command parameters.
+UPDATE_OPTS="--update --deep --newuse --with-bdeps=y @world"
+UPDATE_FLAGS=""
+
+# Process command line switches
+while (( $# > 0 ))
+do
+	case $1 in
+		-b|--quiet-build)
+			UPDATE_FLAGS="${UPDATE_FLAGS} --quiet-build"
+		;;			
+	    -e|--send-email)
+			SENDEMAIL=1
+	    ;;
+	    -k|--keep-going)
+	    	UPDATE_FLAGS="${UPDATE_FLAGS} --keep-going"
+	    ;;
+	    -q|--quiet)
+			QUIET=1
+			SENDEMAIL=1
+	    ;;
+	    -r|--remerge-all)
+			UPDATE_OPTS="--emptytree world"
+	    ;;
+								
+		--version)
+			versioninfo
+			exit
+		;;	
+		*)
+			helpscreen
+			exit
+		;;
+	esac
+	shift 1
+done
+
+# Check to make sure we are NOT being run from inside a build-space.
+[[ -f /etc/buildspace ]] && echo "ERROR: ${CMDNAME} should NOT be run inside a build-space!" >&2 && exit 1
+
+# Clean the portage and binary package temporary directories
+PTD=$(portageq envvar PORTAGE_TMPDIR)
+[[ -z "${PTD}" || (( ! $? )) ]] && echo "ERROR: Unable to locate PORTAGE_TMPDIR" >&2 && exit 2
+rm -rf ${PTD}/portage/*
+(( $? )) && echo "ERROR: Unable to clean ${PTD}/portage" >&2 && exit 3
+rm -rf ${PTD}/binpkgs/*
+(( $? )) && echo "ERROR: Unable to clean ${PTD}/binpkgs" >&2 && exit 3
+
+# If we are not being run from a TTY then set SENDMAIL and QUIET
+tty -s
+if (( $? )); then
+	SENDEMAIL=1
+	QUIET=1
+fi  
+
+# If we are running in quiet mode then redirect output to the log
+if [[ -n ${QUIET} ]]; then
+	redirect_output_to_file update.out.log
+else
+	tee_output_to_file_stdout update.out.log
+fi
+
+echo -e "Starting automated update of $(hostname --long)\n"
+
+# Do a pretend update for the logs
+echo -n "Performing pretend update..."
+exec_and_log pretend_update "emerge --color n --nospinner --pretend --verbose ${UPDATE_OPTS}"
+okorfail 4
+
+# If things are still working so far...
+if (( ! ${EXITSTATUS} )); then
+	# Store and display current key package versions and slots.
+	PRE_PERL_PKG=$(qlist -I -C -v -e dev-lang/perl)
+	PRE_PYTHON_PKGS=$(qlist -I -C -v -e dev-lang/python | xargs)
+	PRE_PYTHON_SLOT=$(qlist -I -C -S -e dev-lang/python | cut -f 2 -d " " | cut -f 2 -d ":" | xargs)
+	PRE_PORTAGE_PKG=$(qlist -I -C -v -e sys-apps/portage)
+	PRE_GCC_PKGS=$(qlist -I -C -v -e sys-devel/gcc | xargs)
+	PRE_GCC_SLOT=$(qlist -I -C -S -e sys-devel/gcc | cut -f 2 -d " " | cut -f 2 -d ":" | xargs)
+	PRE_HEADERS_PKG=$(qlist -I -C -v -e sys-kernel/linux-headers)
+	PRE_GLIBC_PKG=$(qlist -I -C -v -e sys-libs/glibc)
+	PRE_XORG_PKG=$(qlist -I -C -v -e x11-base/xorg-server)
+	PRE_XDRV_PKG=$(qlist -I -C -v -e x11-base/xorg-drivers)
+	
+	[[ -z "${PRE_PERL_PKG}" ]] && echo "Error: Unable to retrieve current dev-lang/perl version" && exit 4
+	[[ -z "${PRE_PYTHON_PKGS}" || -z "${PRE_PYTHON_SLOT}" ]] && echo "Error: Unable to retrieve current dev-lang/python version" && exit 4
+	[[ -z "${PRE_PORTAGE_PKG}" ]] && echo "Error: Unable to retrieve current sys-apps/portage version" && exit 4
+	[[ -z "${PRE_GCC_PKGS}" || -z "${PRE_GCC_SLOT}" ]] && echo "Error: Unable to retrieve current sys-devel/gcc version" && exit 4
+	[[ -z "${PRE_HEADERS_PKG}" ]] && echo "Error: Unable to retrieve current sys-kernel/linux-headers version" && exit 4
+	[[ -z "${PRE_GLIBC_PKG}" ]] && echo "Error: Unable to retrieve current sys-libs/glibc version" && exit 4
+		
+	echo -e "\nKey package versions [pre update]"
+	echo "    ${PRE_PERL_PKG}"
+	echo "    ${PRE_PYTHON_PKGS} in slot(s) ${PRE_PYTHON_SLOT}"
+	echo "    ${PRE_PORTAGE_PKG}"
+	echo "    ${PRE_GCC_PKGS} in slot(s) ${PRE_GCC_SLOT}"
+	echo "    ${PRE_HEADERS_PKG}"
+	echo "    ${PRE_GLIBC_PKG}"
+	[[ -n "${PRE_XORG_PKG}" ]] && echo "    ${PRE_XORG_PKG}"
+	[[ -n "${PRE_XDRV_PKG}" ]] && echo "    ${PRE_XDRV_PKG}"
+	echo
+												
+	# Ensure that key slotted packages are specified in world file and include slot number
+	if [[ -n $(manage-slot-in-world --add-installed --pretend ${KEEP_PACKAGES}) ]]; then
+		echo "Ensuring that key packages are in world file and include slot number"
+		manage-slot-in-world --add-installed ${KEEP_PACKAGES}
+		echo
+	fi 
+
+	# Check for an update to portage (and its dependencies if there is one) and install them.
+	if update_available "sys-apps/portage";
+	then
+		portage_deps=""
+		for pkg in ${PORTAGE_DEPS}; do
+			update_available ${pkg} && portage_deps="${portage_deps} ${pkg}"
+		done
+		portage_deps="${portage_deps} sys-apps/portage"
+		
+		echo -n "Performing update of portage and dependencies [${portage_deps}]..."
+		exec_and_log portage_update "emerge --color n --nospinner --oneshot ${portage_deps}"
+		okorfail 6
+	fi
+fi
+
+# If things are still working so far...
+if (( ! ${EXITSTATUS} )); then
+	# Install updated packages
+	echo -n "Installing updated packages..."
+	exec_and_log system_update "emerge --color n --nospinner ${UPDATE_FLAGS} ${UPDATE_OPTS}"
+	okorfail 7
+
+	# Store new kernel headers, glibc and gcc package versions and slots.
+	POST_HEADERS_PKG=$(qlist -I -C -v -e sys-kernel/linux-headers)
+	POST_GLIBC_PKG=$(qlist -I -C -v -e sys-libs/glibc)
+	POST_GCC_PKGS=$(qlist -I -C -v -e sys-devel/gcc | xargs)
+	POST_GCC_SLOT=$(qlist -I -C -S -e sys-devel/gcc | cut -f 2 -d " " | cut -f 2 -d ":" | xargs)
+
+	# If there has been an update to gcc then we need to use it.
+	if [[ "${POST_GCC_SLOT}" != "${PRE_GCC_SLOT}" ]]; then
+		local gcc_profile=$(gcc-config -c)
+		gcc_profile="${gcc_profile%-*}"
+		local gcc_package=$(qlist -I -C -v -e sys-devel/gcc | tail --lines=1)
+		gcc_package="${gcc_package%-r*}"
+		gcc_package="${gcc_package#sys-devel/gcc}"
+		echo -n "Selecting latest version of sys-devel/gcc..."
+		exec_and_log gcc-config "gcc-config ${gcc_profile}${gcc_package}"
+		okorfail 8
+		env-update &>/dev/null
+		source /etc/profile &>/dev/null
+	fi
+
+	# Clean orphaned dependencies
+	echo -n "Cleaning orphaned dependencies..."
+	exec_and_log depclean "emerge --color n --nospinner --depclean"
+	okorfail 9
+
+	# The gcc versions may have changed - we need to recalculate them.
+	POST_GCC_PKGS=$(qlist -I -C -v -e sys-devel/gcc | xargs)
+	POST_GCC_SLOT=$(qlist -I -C -S -e sys-devel/gcc | cut -f 2 -d " " | cut -f 2 -d ":" | xargs)
+	
+	# Remove old libraries kept by preserve-libs
+	if [[ -n $(qlist -I -C ">=sys-apps/portage-2.1.12") ]]; then
+		echo -n "Rebuilding @preserved-rebuild package set..."
+		exec_and_log emerge_preserved_rebuild "emerge --color n --nospinner @preserved-rebuild"
+		okorfail 10
+	else
+		echo -n "Removing redundant libraries..."
+		exec_and_log delete_redundant_libs "delete-redundant-libs"
+		okorfail 10
+		add_aux_logs delete_redundant_libs
+	fi
+	
+	# Store new python key package versions and slots.
+	POST_PYTHON_PKGS=$(qlist -I -C -v -e dev-lang/python | xargs)
+	POST_PYTHON_SLOT=$(qlist -I -C -S -e dev-lang/python | cut -f 2 -d " " | cut -f 2 -d ":" | xargs)
+
+	# Store new perl key package versions and slots.
+	POST_PERL_PKG=$(qlist -I -C -v -e dev-lang/perl)
+	
+	# Store new Xorg package version.
+	POST_XORG_PKG=$(qlist -I -C -v -e x11-base/xorg-server)
+	POST_XDRV_PKG=$(qlist -I -C -v -e x11-base/xorg-drivers)
+
+	# Rebuild broken binaries
+	echo -n "Rebuilding broken binaries (pass 1 - pretend)..."
+	exec_and_log revdep_rebuild_1_pretend "revdep-rebuild -pi -P -C -- --color n --nospinner"
+	okorfail 15
+	if [[ -e /var/cache/revdep-rebuild/3_broken.rr ]]; then
+		echo -n "Rebuilding broken binaries (pass 1 - remerge)..."
+		exec_and_log revdep_rebuild_1_remerge "revdep-rebuild -P -C -- --color n --nospinner"
+		okorfail 16
+		
+		echo -n "Rebuilding broken binaries (pass 2 - pretend)..."
+		exec_and_log revdep_rebuild_2_pretend "revdep-rebuild -pi -P -C -- --color n --nospinner"
+		okorfail 17
+		if [[ -e /var/cache/revdep-rebuild/3_broken.rr ]]; then
+			echo -n "Rebuilding broken binaries (pass 2 - remerge)..."
+			exec_and_log revdep_rebuild_2_remerge "revdep-rebuild -P -C -- --color n --nospinner"
+			okorfail 18
+		fi
+	fi
+
+	# Install kernel modules.  TODO: We should find a way to see if this is required.
+	if [[ -d /usr/src/linux ]]; then
+		pushd /usr/src/linux >/dev/null
+		local KVER=$(make kernelversion)
+		echo -n "Installing kernel modules for ${KVER}..."
+		exec_and_log modules_install "make modules_install"
+		okorfail 20
+		popd >/dev/null
+	else
+		echo "WARNING: Unable to locate kernel sources!"
+	fi
+
+	# Store any new news items for email attachment later
+	NEWSITEMS=$(eselect news count new)
+	if (( ${NEWSITEMS} > 0 )); then
+		echo -n "Getting ${NEWSITEMS} news item(s) for later reading..."
+		exec_and_log news "eselect news read new"
+		okorfail 22
+	fi
+
+	# Store remaining key package versions and slots.
+	POST_PORTAGE_PKG=$(qlist -I -C -v -e sys-apps/portage)
+
+	# Display new key package versions and slots.
+	echo -e "\nKey package versions [post update]"
+	echo "    ${POST_PERL_PKG}"
+	echo "    ${POST_PYTHON_PKGS} in slot(s) ${POST_PYTHON_SLOT}"
+	echo "    ${POST_PORTAGE_PKG}"
+	echo "    ${POST_GCC_PKGS} in slot(s) ${POST_GCC_SLOT}"
+	echo "    ${POST_HEADERS_PKG}"
+	echo "    ${POST_GLIBC_PKG}"
+	[[ -n "${POST_XORG_PKG}" ]] && echo "    ${POST_XORG_PKG}"
+	[[ -n "${POST_XDRV_PKG}" ]] && echo "    ${POST_XDRV_PKG}"
+				
+	# Display any slotted packages which are no longer available
+	if [[ -n $(manage-slot-in-world --remove-unavailable --pretend ${KEEP_PACKAGES}) ]]; then
+		echo -e "\nThe following key packages are no longer available in portage"
+		manage-slot-in-world --remove-unavailable --pretend ${KEEP_PACKAGES}
+	fi 
+fi
+
+# Display completion state
+if (( ! ${EXITSTATUS} )); then
+	echo -e "\nAutomated update of $(hostname --long) completed.\n"
+else
+	echo -e "\nAutomated update of $(hostname --long) failed.\n"
+fi
+
+# End logging redirect
+end_log_redirect
+
+# Bzip any log files larger than 100k
+bzip_large_logs 102400
+
+# If we were asked to send email send the logs to the buildspace admin (or root).
+if [[ -n ${SENDEMAIL} ]]; then
+	send_logs_by_email "Automated update of $(hostname --long)" "${ADMIN_EMAIL:-root}"
+fi
+
+# If we aren't running in quiet mode show a list of the log files we generated during the update
+if [[ -z ${QUIET} ]]; then
+	display_log_paths
+fi
+
+exit ${EXITSTATUS}
+								
