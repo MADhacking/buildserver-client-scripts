@@ -203,10 +203,25 @@ fi
 
 # If things are still working so far...
 if (( ! ${EXITSTATUS} )); then
+	# Check to see if we have a deprecated profile.
+	if [[ -f "/etc/make.profile/deprecated" ]]; then
+		oldprofile=$(eselect --brief --colour=no profile show)
+		oldprofile=$(echo ${oldprofile})
+		newprofile=$(cat "/etc/make.profile/deprecated")
+		echo -n "Updating profile from ${oldprofile} to ${newprofile}..."
+		exec_and_log profile_update "eselect profile set ${newprofile}"
+		okorfail 7
+		env-update &>/dev/null
+		source /etc/profile &>/dev/null
+	fi
+fi
+
+# If things are still working so far...
+if (( ! ${EXITSTATUS} )); then
 	# Install updated packages
 	echo -n "Installing updated packages..."
 	exec_and_log system_update "emerge --color n --nospinner ${UPDATE_FLAGS} ${UPDATE_OPTS}"
-	okorfail 7
+	okorfail 8
 
 	# Store new kernel headers, glibc and gcc package versions and slots.
 	POST_HEADERS_PKG=$(qlist -I -C -v -e sys-kernel/linux-headers)
@@ -223,7 +238,7 @@ if (( ! ${EXITSTATUS} )); then
 		gcc_package="${gcc_package#sys-devel/gcc}"
 		echo -n "Selecting latest version of sys-devel/gcc..."
 		exec_and_log gcc-config "gcc-config ${gcc_profile}${gcc_package}"
-		okorfail 8
+		okorfail 9
 		env-update &>/dev/null
 		source /etc/profile &>/dev/null
 	fi
@@ -231,7 +246,7 @@ if (( ! ${EXITSTATUS} )); then
 	# Clean orphaned dependencies
 	echo -n "Cleaning orphaned dependencies..."
 	exec_and_log depclean "emerge --color n --nospinner --depclean"
-	okorfail 9
+	okorfail 10
 
 	# The gcc versions may have changed - we need to recalculate them.
 	POST_GCC_PKGS=$(qlist -I -C -v -e sys-devel/gcc | xargs)
@@ -241,11 +256,11 @@ if (( ! ${EXITSTATUS} )); then
 	if [[ -n $(qlist -I -C ">=sys-apps/portage-2.1.12") ]]; then
 		echo -n "Rebuilding @preserved-rebuild package set..."
 		exec_and_log emerge_preserved_rebuild "emerge --color n --nospinner @preserved-rebuild"
-		okorfail 10
+		okorfail 11
 	else
 		echo -n "Removing redundant libraries..."
 		exec_and_log delete_redundant_libs "delete-redundant-libs"
-		okorfail 10
+		okorfail 11
 		add_aux_logs delete_redundant_libs
 	fi
 	
