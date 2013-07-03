@@ -159,7 +159,7 @@ PRE_XDRV_PKG=$(qlist -I -C -v -e x11-base/xorg-drivers)
 [[ -z "${PRE_HEADERS_PKG}" ]] && echo "Error: Unable to retrieve current sys-kernel/linux-headers version" && exit 4
 [[ -z "${PRE_GLIBC_PKG}" ]] && echo "Error: Unable to retrieve current sys-libs/glibc version" && exit 4
 	
-echo -e "\nKey package versions [pre update]"
+echo "Key package versions [pre update]"
 echo "    ${PRE_PERL_PKG}"
 echo "    ${PRE_PYTHON_PKGS} in slot(s) ${PRE_PYTHON_SLOT}"
 echo "    ${PRE_PORTAGE_PKG}"
@@ -313,6 +313,11 @@ if (( ! ${EXITSTATUS} )); then
 		exec_and_log news "eselect news read new"
 		okorfail 22
 	fi
+
+	# Run etc-update to keep a record of the configuration files which need updating.
+	echo -n "Getting list of configuration file updates for later reading..."
+	exec_and_log etc_update "echo -1 | etc-update"
+	okorfail 23
 
 	# Store remaining key package versions and slots.
 	POST_PORTAGE_PKG=$(qlist -I -C -v -e sys-apps/portage)
