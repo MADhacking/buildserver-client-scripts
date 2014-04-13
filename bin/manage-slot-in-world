@@ -94,7 +94,7 @@ if [[ -z ${ADD} && -z ${REMOVE} ]]; then
 fi
 
 # Get the portage directory
-PORTDIR=$(portageq portdir)
+PORTDIR=$(portageq get_repo_path $(portageq envvar EROOT) gentoo)
 [[ -z ${PORTDIR} ]] && echo "ERROR: Unable to locate PORTDIR" >&2 && exit 2
 
 # If we have been asked to add packages to the world file then...
