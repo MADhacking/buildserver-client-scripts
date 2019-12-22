@@ -30,6 +30,20 @@ function helpscreen
     echo "      --version                  output version information and exit"
 }
 
+function die
+{
+    local msg ev
+    msg="ERROR: ${1}"
+    ev="${2}"
+    
+    if [[ -z "${ev}" ]] || (( ev < 1 )); then
+        ev=1
+    fi
+    
+    echo "${msg}" >&2
+    exit "${ev}"
+}
+
 function okorfail
 {
     # shellcheck disable=SC2181
@@ -51,7 +65,7 @@ function update_available()
 # Update environment and source the profile
 env-update --no-ldconfig &>/dev/null
 # shellcheck disable=SC1090
-source /etc/profile &>/dev/null
+source /etc/profile &>/dev/null || die "Unable to source /etc/profile" 1
 
 # Init global vars
 OUTLOGLIB=/usr/lib/outlogger.sh
@@ -99,46 +113,25 @@ do
 done
 
 # If the config file exists and we can read it do so, otherwise complain and quit
-if [[ ! -r ${CFGFILE} ]]; then
-    echo "ERROR: Unable to read config file at ${CFGFILE}" >&2
-    exit 1 
-fi
+[[ -r "${CFGFILE}" ]] || die "Unable to read config file at ${CFGFILE}" 1
 # shellcheck disable=SC1090
 source ${CFGFILE}
 
 # Include and initialise logging library
-if [[ ! -r "${OUTLOGLIB}" ]]; then 
-    echo "ERROR: Unable to load outlogger library from ${OUTLOGLIB}" >&2
-    exit 2
-fi
-if [[ -z "${LOGPATH}" ]]; then
-    echo "ERROR: No LOGPATH set in ${CFGFILE}" >&2
-    exit 2
-fi
+[[ -z "${LOGPATH}" ]] && die "No LOGPATH set in ${CFGFILE}" 2
+[[ -r "${OUTLOGLIB}" ]] || die "Unable to load outlogger library from ${OUTLOGLIB}" 2
 # shellcheck disable=SC1090
 source ${OUTLOGLIB}
 init_logging "${LOGPATH}"
 
 # Check to make sure we are NOT being run from inside a build-space.
-if [[ -f /etc/buildspace ]]; then 
-    echo "ERROR: ${CMDNAME} should NOT be run inside a build-space!" >&2
-    exit 1
-fi
+[[ -f /etc/buildspace ]] && die "${CMDNAME} should NOT be run inside a build-space!" 1
 
 # Clean the portage and binary package temporary directories
 PTD=$(portageq envvar PORTAGE_TMPDIR)
-if [[ -z "${PTD}" || (( ! $? )) ]]; then
-    echo "ERROR: Unable to locate PORTAGE_TMPDIR" >&2
-    exit 2
-fi
-if ! rm -rf "${PTD}"/portage/*; then
-    echo "ERROR: Unable to clean ${PTD}/portage" >&2
-    exit 3
-fi
-if ! rm -rf "${PTD}"/binpkgs/*; then
-    echo "ERROR: Unable to clean ${PTD}/binpkgs" >&2
-    exit 3
-fi
+[[ -z "${PTD}" || (( ! $? )) ]] && die "Unable to locate PORTAGE_TMPDIR" 2
+rm -rf "${PTD}"/portage/* || die "Unable to clean ${PTD}/portage" 3
+rm -rf "${PTD}"/binpkgs/* || die "Unable to clean ${PTD}/binpkgs" 3
 
 # If we are not being run from a TTY then set SENDMAIL and QUIET
 if ! tty -s; then
@@ -167,12 +160,12 @@ PRE_GLIBC_PKG=$(qlist -I -C -v -e sys-libs/glibc)
 PRE_XORG_PKG=$(qlist -I -C -v -e x11-base/xorg-server)
 PRE_XDRV_PKG=$(qlist -I -C -v -e x11-base/xorg-drivers)
 
-[[ -z "${PRE_PERL_PKG}" ]] && echo "Error: Unable to retrieve current dev-lang/perl version" && exit 4
-[[ -z "${PRE_PYTHON_PKGS}" || -z "${PRE_PYTHON_SLOT}" ]] && echo "Error: Unable to retrieve current dev-lang/python version" && exit 4
-[[ -z "${PRE_PORTAGE_PKG}" ]] && echo "Error: Unable to retrieve current sys-apps/portage version" && exit 4
-[[ -z "${PRE_GCC_PKGS}" || -z "${PRE_GCC_SLOT}" ]] && echo "Error: Unable to retrieve current sys-devel/gcc version" && exit 4
-[[ -z "${PRE_HEADERS_PKG}" ]] && echo "Error: Unable to retrieve current sys-kernel/linux-headers version" && exit 4
-[[ -z "${PRE_GLIBC_PKG}" ]] && echo "Error: Unable to retrieve current sys-libs/glibc version" && exit 4
+[[ -z "${PRE_PERL_PKG}" ]] && die "Unable to retrieve current dev-lang/perl version" 4
+[[ -z "${PRE_PYTHON_PKGS}" || -z "${PRE_PYTHON_SLOT}" ]] && die "Unable to retrieve current dev-lang/python version" 4
+[[ -z "${PRE_PORTAGE_PKG}" ]] && die "Unable to retrieve current sys-apps/portage version" 4
+[[ -z "${PRE_GCC_PKGS}" || -z "${PRE_GCC_SLOT}" ]] && die "Unable to retrieve current sys-devel/gcc version" 4
+[[ -z "${PRE_HEADERS_PKG}" ]] && die "Unable to retrieve current sys-kernel/linux-headers version" 4
+[[ -z "${PRE_GLIBC_PKG}" ]] && die "Unable to retrieve current sys-libs/glibc version" 4
 	
 echo "Key package versions [pre update]"
 echo "    ${PRE_PERL_PKG}"

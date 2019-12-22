@@ -28,6 +28,20 @@ function helpscreen
     echo "      --version                  output version information and exit"
 }
 
+function die
+{
+    local msg ev
+    msg="ERROR: ${1}"
+    ev="${2}"
+    
+    if [[ -z "${ev}" ]] || (( ev < 1 )); then
+        ev=1
+    fi
+    
+    echo "${msg}" >&2
+    exit "${ev}"
+}
+
 # Process command line switches
 while (( $# > 0 ))
 do
@@ -72,7 +86,7 @@ do
 done
 
 # By now we should have a collection of at least one package atom
-[[ -z ${PKG_LIST} ]] && echo "ERROR: Package atom expected" >&2 && exit 1
+[[ -z ${PKG_LIST} ]] && die "Package atom(s) expected" 1
 
 # Sort the package list
 PKG_LIST=$(echo "${PKG_LIST}" | tr " " "\n" | sort | tr "\n" " ")
@@ -84,8 +98,8 @@ if [[ -z ${ADD} && -z ${REMOVE} ]]; then
 fi
 
 # Get the portage directory
-PORTDIR=$(portageq get_repo_path "$(portageq envvar EROOT)" gentoo)
-[[ -z ${PORTDIR} ]] && echo "ERROR: Unable to locate PORTDIR" >&2 && exit 2
+PORTDIR=$(portageq get_repo_path "$(portageq envvar EROOT)" gentoo 2>/dev/null)
+[[ -z ${PORTDIR} ]] && die "Unable to locate PORTDIR" 2
 
 # If we have been asked to add packages to the world file then...
 if [[ -n ${ADD} ]]; then
