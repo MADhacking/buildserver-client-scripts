@@ -2,18 +2,8 @@
 
 function versioninfo
 {
-	VERSION="$Revision$"
-	VERSION="${VERSION%\ \$}"; VERSION="${VERSION#\:}"; VERSION="${VERSION##\ }"
-	VERSION="(CVS revision $VERSION)"
-	
-	NAME="$Name$"
-	NAME="${NAME%\ \$}"; NAME="${NAME#\:}"; NAME="${NAME##\ }"; NAME="${NAME##release-}"; NAME="${NAME//-/.}"
-	[[ -n $NAME ]] && NAME="Version $NAME "
-
-	echo ${CMDNAME}
-	echo ${NAME}${VERSION}
-
-	echo -e "\nCopyright (C) 2010 Hacking Networked Solutions"
+	echo "$(basename "${0}") - version 1.0.0"
+	echo -e "\nCopyright (C) 2010-2019 Hacking Networked Solutions"
 	echo "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>."
 	echo "This is free software: you are free to change and redistribute it."
 	echo "There is NO WARRANTY, to the extent permitted by law."
@@ -21,7 +11,7 @@ function versioninfo
 
 function helpscreen
 {
-	NAME=$(basename ${0})
+	NAME=$(basename "${0}")
 	echo "Usage: ${NAME} [OPTION]... PACKAGE [PACKAGE]..."
 	echo "Manages slot specific package entries in the world file to ensure that depclean"
 	echo "does not clean needed packages and unavailable packages are noted."
@@ -68,7 +58,7 @@ do
 			versioninfo
 			exit
 		;;	
-		-*|--*)
+		-*)
 			helpscreen
 			shift 1
 			exit
@@ -94,7 +84,7 @@ if [[ -z ${ADD} && -z ${REMOVE} ]]; then
 fi
 
 # Get the portage directory
-PORTDIR=$(portageq get_repo_path $(portageq envvar EROOT) gentoo)
+PORTDIR=$(portageq get_repo_path "$(portageq envvar EROOT)" gentoo)
 [[ -z ${PORTDIR} ]] && echo "ERROR: Unable to locate PORTDIR" >&2 && exit 2
 
 # If we have been asked to add packages to the world file then...
@@ -102,12 +92,12 @@ if [[ -n ${ADD} ]]; then
 	# ...loop through the packages we were passed...
 	for PKG in ${PKG_LIST}; do
 		# ...adding all slot versions of the specified package to the world file...
-		PKG_SLOTS=$(qlist -I -C -S -e ${PKG} | cut -f 2 -d ":" | cut -f 2 -d " " | xargs)
-		PKG_NAME=$(qlist -I -C -e ${PKG} | tail --lines=1)
-		if [[ -z ${PKG_SLOTS} ]]; then
+		PKG_SLOTS=$(qlist -I -C -S -e "${PKG}" | cut -f 2 -d ":" | cut -f 2 -d " " | xargs)
+		PKG_NAME=$(qlist -I -C -e "${PKG}" | tail --lines=1)
+		if [[ -z "${PKG_SLOTS}" ]]; then
 			echo "ERROR: No versions of ${PKG} are installed" >&2
 		else
-			if [[ ${PKG_SLOTS} == "0" ]]; then
+			if [[ "${PKG_SLOTS}" == "0" ]]; then
 				echo  "ERROR: ${PKG} is not a slotted package" >&2
 			else
 				for SLOT in ${PKG_SLOTS}; do
@@ -138,17 +128,17 @@ if [[ -n ${REMOVE} ]]; then
 			echo "ERROR: No slot specified versions of ${PKG} are installed" >&2
 		else
 			for SLOT in ${PKG_SLOTS}; do
-				PKG_VER=$(portageq best_visible ${PORTDIR} ${SLOT})
-				if [[ -z ${PKG_VER} || -n ${REMOVEALL} ]]; then
-					if [[ -z ${WORLDMOD} && -n ${PRETEND} ]]; then
+				PKG_VER=$(portageq best_visible "${PORTDIR}" "${SLOT}")
+				if [[ -z "${PKG_VER}" || -n "${REMOVEALL}" ]]; then
+					if [[ -z "${WORLDMOD}" && -n "${PRETEND}" ]]; then
 						cp /var/lib/portage/world /var/lib/portage/world.bak
 						WORLDMOD="yes"
 					fi
 					echo -n "    ${SLOT} "
-					[[ -z ${PRETEND} ]] && echo "removed from world" || echo "would be removed from world"  
-					if [[ -z ${PRETEND} ]]; then
-						grep -Ev "^${SLOT}$" /var/lib/portage/world > /var/lib/portage/world.new
-						(( ! $? )) && mv /var/lib/portage/world.new /var/lib/portage/world
+					[[ -z "${PRETEND}" ]] && echo "removed from world" || echo "would be removed from world"  
+					if [[ -z "${PRETEND}" ]]; then
+						grep -Ev "^${SLOT}$" /var/lib/portage/world > /var/lib/portage/world.new && \
+						mv /var/lib/portage/world.new /var/lib/portage/world
 					fi
 				else
 					[[ -n ${VERBOSE} ]] && echo "    ${SLOT} still available"
@@ -160,6 +150,6 @@ fi
 
 # If the world file was modified then sort it
 if [[ -n ${WORLDMOD} ]]; then
-	sort /var/lib/portage/world > /var/lib/portage/world.new
-	(( ! $? )) && mv /var/lib/portage/world.new /var/lib/portage/world
+	sort /var/lib/portage/world > /var/lib/portage/world.new && \
+	mv /var/lib/portage/world.new /var/lib/portage/world
 fi

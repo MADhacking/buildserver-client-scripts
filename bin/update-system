@@ -1,22 +1,13 @@
 #! /bin/bash
+# shellcheck disable=SC1091,SC2164
 
 function versioninfo
 {
-	VERSION="$Revision$"
-	VERSION="${VERSION%\ \$}"; VERSION="${VERSION#\:}"; VERSION="${VERSION##\ }"
-	VERSION="(CVS revision $VERSION)"
-	
-	NAME="$Name$"
-	NAME="${NAME%\ \$}"; NAME="${NAME#\:}"; NAME="${NAME##\ }"; NAME="${NAME##release-}"; NAME="${NAME//-/.}"
-	[[ -n $NAME ]] && NAME="Version $NAME "
-
-	echo ${CMDNAME}
-	echo ${NAME}${VERSION}
-
-	echo -e "\nCopyright (C) 2013 Hacking Networked Solutions"
-	echo "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>."
-	echo "This is free software: you are free to change and redistribute it."
-	echo "There is NO WARRANTY, to the extent permitted by law."
+    echo "$(basename "${0}") - version 1.0.0"
+    echo -e "\nCopyright (C) 2013-2019 Hacking Networked Solutions"
+    echo "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>."
+    echo "This is free software: you are free to change and redistribute it."
+    echo "There is NO WARRANTY, to the extent permitted by law."
 }
 
 function helpscreen
@@ -41,6 +32,7 @@ function helpscreen
 
 function okorfail
 {
+    # shellcheck disable=SC2181
 	if (( ! $? )); then
 		echo "ok." 
 	else
@@ -51,23 +43,26 @@ function okorfail
 
 function update_available()
 {
-	[[ -z $(qlist -I -C ">=$(portageq best_visible / ${1})") ]] && return 0
+	[[ -z "$(qlist -I -C ">=$(portageq best_visible / "${1}")")" ]] && return 0
 	
 	return 1
 }
 
 # Update environment and source the profile
 env-update --no-ldconfig &>/dev/null
+# shellcheck disable=SC1090
 source /etc/profile &>/dev/null
 
 # Init global vars
 OUTLOGLIB=/usr/lib/outlogger.sh
 CFGFILE=/etc/buildserver-client
-CMDNAME=$(basename ${0})
+CMDNAME=$(basename "${0}")
 EXITSTATUS=0
 
 # Workaround for python bug 13107 - http://bugs.python.org/issue13107
-[[ -z "$COLUMNS" ]] && export COLUMNS=80 || ( (( $COLUMNS < 80 )) && export COLUMNS=80 )
+if [[ -z "$COLUMNS" ]] || (( COLUMNS < 80 )); then
+    export COLUMNS=80
+fi
 
 # The default update command parameters.
 UPDATE_OPTS="--update --deep --newuse --with-bdeps=y @world"
@@ -104,29 +99,49 @@ do
 done
 
 # If the config file exists and we can read it do so, otherwise complain and quit
-[[ ! -r ${CFGFILE} ]] && echo "ERROR: Unable to read config file at ${CFGFILE}" >&2 && exit 1 
+if [[ ! -r ${CFGFILE} ]]; then
+    echo "ERROR: Unable to read config file at ${CFGFILE}" >&2
+    exit 1 
+fi
+# shellcheck disable=SC1090
 source ${CFGFILE}
 
 # Include and initialise logging library
-[[ ! -r ${OUTLOGLIB} ]] && echo "ERROR: Unable to load outlogger library from ${OUTLOGLIB}" >&2 && exit 2
-[[ -z "${LOGPATH}" ]] && echo "ERROR: No LOGPATH set in ${CFGFILE}" >&2 && exit 2
+if [[ ! -r "${OUTLOGLIB}" ]]; then 
+    echo "ERROR: Unable to load outlogger library from ${OUTLOGLIB}" >&2
+    exit 2
+fi
+if [[ -z "${LOGPATH}" ]]; then
+    echo "ERROR: No LOGPATH set in ${CFGFILE}" >&2
+    exit 2
+fi
+# shellcheck disable=SC1090
 source ${OUTLOGLIB}
-init_logging ${LOGPATH}
+init_logging "${LOGPATH}"
 
 # Check to make sure we are NOT being run from inside a build-space.
-[[ -f /etc/buildspace ]] && echo "ERROR: ${CMDNAME} should NOT be run inside a build-space!" >&2 && exit 1
+if [[ -f /etc/buildspace ]]; then 
+    echo "ERROR: ${CMDNAME} should NOT be run inside a build-space!" >&2
+    exit 1
+fi
 
 # Clean the portage and binary package temporary directories
 PTD=$(portageq envvar PORTAGE_TMPDIR)
-[[ -z "${PTD}" || (( ! $? )) ]] && echo "ERROR: Unable to locate PORTAGE_TMPDIR" >&2 && exit 2
-rm -rf ${PTD}/portage/*
-(( $? )) && echo "ERROR: Unable to clean ${PTD}/portage" >&2 && exit 3
-rm -rf ${PTD}/binpkgs/*
-(( $? )) && echo "ERROR: Unable to clean ${PTD}/binpkgs" >&2 && exit 3
+if [[ -z "${PTD}" || (( ! $? )) ]]; then
+    echo "ERROR: Unable to locate PORTAGE_TMPDIR" >&2
+    exit 2
+fi
+if ! rm -rf "${PTD}"/portage/*; then
+    echo "ERROR: Unable to clean ${PTD}/portage" >&2
+    exit 3
+fi
+if ! rm -rf "${PTD}"/binpkgs/*; then
+    echo "ERROR: Unable to clean ${PTD}/binpkgs" >&2
+    exit 3
+fi
 
 # If we are not being run from a TTY then set SENDMAIL and QUIET
-tty -s
-if (( $? )); then
+if ! tty -s; then
 	SENDEMAIL=1
 	QUIET=1
 fi  
@@ -171,34 +186,35 @@ echo "    ${PRE_GLIBC_PKG}"
 echo
 											
 # Ensure that key slotted packages are specified in world file and include slot number
+# shellcheck disable=SC2086
 if [[ -n $(manage-slot-in-world --add-installed --pretend ${KEEP_PACKAGES}) ]]; then
 	echo "Ensuring that key packages are in world file and include slot number"
+	# shellcheck disable=SC2086
 	manage-slot-in-world --add-installed ${KEEP_PACKAGES}
 	echo
 fi 
 
 # Check for an update to portage (and its dependencies if there is one) and install them.
 if update_available "sys-apps/portage";	then
-	portage_deps=""
+	pdeps=""
 	for pkg in ${PORTAGE_DEPS}; do
 		if update_available "${pkg}"; then
-			portage_deps="${portage_deps} ${pkg}"
+			pdeps="${pdeps} ${pkg}"
 		fi
 	done
-	portage_deps="${portage_deps} sys-apps/portage"
-	portage_deps="${portage_deps## }"
+	pdeps="${pdeps} sys-apps/portage"
+	pdeps="${pdeps## }"
 	
-	echo -n "Performing update of portage and dependencies [${portage_deps}]..."
-	exec_and_log portage_update "emerge --color n --nospinner --oneshot --update --complete-graph=y --with-bdeps=y ${portage_deps}"
+	echo -n "Performing update of portage and dependencies [${pdeps}]..."
+	exec_and_log portage_update "emerge --color n --nospinner --oneshot --update --complete-graph=y --with-bdeps=y ${pdeps}"
 	okorfail 6
 fi
 
 # If things are still working so far...
-if (( ! ${EXITSTATUS} )); then
+if (( ! EXITSTATUS )); then
 	# Check to see if we have a deprecated profile.
 	if [[ -f "/etc/make.profile/deprecated" ]]; then
-		oldprofile=$(eselect --brief --colour=no profile show)
-		oldprofile=$(echo ${oldprofile})
+		oldprofile=$(eselect --brief --colour=no profile show | xargs)
 		newprofile=$(cat "/etc/make.profile/deprecated")
 		echo -n "Updating profile from ${oldprofile} to ${newprofile}..."
 		exec_and_log profile_update "eselect profile set ${newprofile}"
@@ -209,7 +225,7 @@ if (( ! ${EXITSTATUS} )); then
 fi
 
 # If things are still working so far...
-if (( ! ${EXITSTATUS} )); then
+if (( ! EXITSTATUS )); then
 	# Do a pretend update for the logs
 	echo -n "Performing pretend update..."
 	exec_and_log pretend_update "emerge --color n --nospinner --pretend --verbose ${UPDATE_OPTS}"
@@ -217,7 +233,7 @@ if (( ! ${EXITSTATUS} )); then
 fi
 
 # If things are still working so far...
-if (( ! ${EXITSTATUS} )); then
+if (( ! EXITSTATUS )); then
 	# Install updated packages
 	echo -n "Installing updated packages..."
 	exec_and_log system_update "emerge --color n --nospinner ${UPDATE_FLAGS} ${UPDATE_OPTS}"
@@ -308,7 +324,7 @@ if (( ! ${EXITSTATUS} )); then
 
 	# Store any new news items for email attachment later
 	NEWSITEMS=$(eselect news count new)
-	if (( ${NEWSITEMS} > 0 )); then
+	if (( NEWSITEMS > 0 )); then
 		echo -n "Getting ${NEWSITEMS} news item(s) for later reading..."
 		exec_and_log news "eselect news read new"
 		okorfail 22
@@ -334,14 +350,16 @@ if (( ! ${EXITSTATUS} )); then
 	[[ -n "${POST_XDRV_PKG}" ]] && echo "    ${POST_XDRV_PKG}"
 				
 	# Display any slotted packages which are no longer available
+    # shellcheck disable=SC2086
 	if [[ -n $(manage-slot-in-world --remove-unavailable --pretend ${KEEP_PACKAGES}) ]]; then
 		echo -e "\nThe following key packages are no longer available in portage"
+		# shellcheck disable=SC2086
 		manage-slot-in-world --remove-unavailable --pretend ${KEEP_PACKAGES}
 	fi 
 fi
 
 # Display completion state
-if (( ! ${EXITSTATUS} )); then
+if (( ! EXITSTATUS )); then
 	echo -e "\nAutomated update of $(hostname --long) completed.\n"
 else
 	echo -e "\nAutomated update of $(hostname --long) failed.\n"
