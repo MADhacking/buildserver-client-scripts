@@ -4,7 +4,7 @@ on:
   repository_dispatch:
   schedule:
     # min hour day month dow
-    - cron: "0 0 * * 1"
+    - cron: "10 0 * * 1"
 
 jobs:
   action-ebuild-keyword:
@@ -38,3 +38,4 @@ jobs:
         auth_token: ${{ secrets.PR_TOKEN }}
         deploy_key: ${{ secrets.DEPLOY_KEY }}
         overlay_repo: MADhacking/overlay
+        overlay_branch: master
